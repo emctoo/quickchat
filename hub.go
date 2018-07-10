@@ -3,27 +3,28 @@ package main
 import (
 	// "fmt"
 	"log"
-	"quickchat/database"
+	// "quickchat/database"
 	"time"
 )
 
+// Hub websocket hub
 type Hub struct {
 	pass       string
 	chatid     int
-	users      map[*User]bool
+	users      map[*Profile]bool
 	broadcast  chan []byte
-	register   chan *User
-	unregister chan *User
+	register   chan *Profile
+	unregister chan *Profile
 }
 
 func newHub(id int, key string) *Hub {
 	return &Hub{
 		pass:       key,
 		chatid:     id,
-		users:      make(map[*User]bool),
+		users:      make(map[*Profile]bool),
 		broadcast:  make(chan []byte),
-		register:   make(chan *User),
-		unregister: make(chan *User),
+		register:   make(chan *Profile),
+		unregister: make(chan *Profile),
 	}
 }
 
@@ -34,7 +35,7 @@ func (hub *Hub) run() {
 		select {
 		case newUser := <-hub.register:
 			hub.users[newUser] = true
-			NumberOfConnections += 1
+			NumberOfConnections++
 
 		case delUser := <-hub.unregister:
 			if _, ok := hub.users[delUser]; ok {
@@ -42,7 +43,7 @@ func (hub *Hub) run() {
 				close(delUser.send)
 				delUser.conn.Close()
 				log.Println("Killed user", delUser.name)
-				NumberOfConnections -= 1
+				NumberOfConnections--
 				// if hub has no connections, close hub
 				if len(hub.users) == 0 {
 					log.Println("Hub", hub.chatid, "going down")
@@ -64,7 +65,7 @@ func (hub *Hub) run() {
 
 		case <-ticker.C:
 			// if Chat expired, close the hub
-			if !database.ChatExists(hub.chatid) {
+			if !ChatExists(hub.chatid) {
 				log.Println(hub.chatid, ": Closing all connections")
 				for user := range hub.users {
 					user.conn.Close()

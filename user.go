@@ -7,11 +7,11 @@ import (
 	// "github.com/jinzhu/gorm"
 	"log"
 	"net/http"
-	"quickchat/database"
 	"strings"
 	"time"
 )
 
+// NumberOfConnections 最大连接数
 var NumberOfConnections int
 
 const (
@@ -38,16 +38,17 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-type User struct {
+// Profile 用户信息
+type Profile struct {
 	name      string
 	hub       *Hub
 	conn      *websocket.Conn
 	send      chan []byte
-	chat      database.Chat
+	chat      Chat
 	writekill chan bool
 }
 
-func (c *User) readPump() {
+func (c *Profile) readPump() {
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
@@ -71,7 +72,7 @@ func (c *User) readPump() {
 		splitMessage := strings.Split(smessage, ":")
 		if len(splitMessage) == 2 {
 			if splitMessage[0] == c.name {
-				database.CommentCreate(c.hub.chatid, c.name, splitMessage[1], c.chat)
+				CommentCreate(c.hub.chatid, c.name, splitMessage[1], c.chat)
 				c.hub.broadcast <- message
 			} else {
 				c.writekill <- true
@@ -81,7 +82,7 @@ func (c *User) readPump() {
 	}
 }
 
-func (c *User) writePump() {
+func (c *Profile) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		// c.hub.unregister <- c
@@ -128,13 +129,13 @@ func (c *User) writePump() {
 	}
 }
 
-func serveWs(hub *Hub, name string, w http.ResponseWriter, r *http.Request, chat database.Chat) {
+func serveWs(hub *Hub, name string, w http.ResponseWriter, r *http.Request, chat Chat) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	user := &User{name: name, hub: hub, conn: conn, chat: chat,
+	user := &Profile{name: name, hub: hub, conn: conn, chat: chat,
 		send:      make(chan []byte, 256),
 		writekill: make(chan bool),
 	}
@@ -142,5 +143,5 @@ func serveWs(hub *Hub, name string, w http.ResponseWriter, r *http.Request, chat
 	// start writer and reader on different go routines
 	go user.writePump()
 	go user.readPump()
-	log.Println("User", user.name, " connected!")
+	log.Println("Profile", user.name, " connected!")
 }

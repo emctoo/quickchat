@@ -2,15 +2,15 @@ package main
 
 import (
 	"fmt"
-	"github.com/gorilla/csrf"
-	"github.com/gorilla/mux"
-	"github.com/jinzhu/gorm"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
-	"quickchat/database"
 	"strconv"
+
+	"github.com/gorilla/csrf"
+	"github.com/gorilla/mux"
+	"github.com/jinzhu/gorm"
 )
 
 var mainPage = template.Must(template.ParseFiles("template/index.html"))
@@ -23,17 +23,20 @@ var hublist map[int]*Hub
 func main() {
 	// make migrations and delete all expired chats
 	hublist = make(map[int]*Hub)
-	database.Migrate()
-	db = database.Connect()
-	database.ChatDeleteExpired()
+
+	Migrate()
+
+	db = Connect()
+	ChatDeleteExpired()
 
 	// set log output file
-	f, err := os.OpenFile("testlogfile", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile("/tmp/quickchat.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		fmt.Println("ERROR opening file")
 	}
 
 	log.SetOutput(f)
+	log.Println("设置日志文件 /tmp/quickchat.log")
 
 	defer func() {
 		f.Close()
@@ -47,11 +50,12 @@ func main() {
 	r.HandleFunc("/", ShowMain).Methods("GET")
 	r.HandleFunc("/chat/duplicate", ShowMainDuplicateChat).Methods("GET") // main index page
 	r.HandleFunc("/{Name}", ShowChat).Methods("GET")                      // chat page
-	r.HandleFunc("/ws/{ID}/{username}", Chat)                             // websocket connection page
+	r.HandleFunc("/ws/{ID}/{username}", Chatting)                         // websocket connection page
 	r.HandleFunc("/chat/create", CreateChat).Methods("POST")              // create chat
-	CSRF := csrf.Protect(database.RandStringBytes(), csrf.Secure(false))
+
+	CSRF := csrf.Protect([]byte("32-byte-long-auth-key"), csrf.Secure(false))
 	log.Println("Server running ... ")
-	http.ListenAndServe("0.0.0.0:80", CSRF(r))
+	http.ListenAndServe("0.0.0.0:2000", CSRF(r))
 }
 
 // Index page
@@ -73,7 +77,7 @@ func ShowMainDuplicateChat(w http.ResponseWriter, r *http.Request) {
 
 // Loads the chat page
 func ShowChat(w http.ResponseWriter, r *http.Request) {
-	var chat database.Chat
+	var chat Chat
 	vars := mux.Vars(r)
 	Name := vars["Name"]
 
@@ -82,7 +86,7 @@ func ShowChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	comments := []database.Comment{}
+	comments := []Comment{}
 	db.Where("chat_id = ?", chat.ID).Order("created_at asc").Find(&comments)
 	var data map[string]interface{}
 	data = make(map[string]interface{})
@@ -102,8 +106,8 @@ func CreateChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// create if does not exist
-	if err := db.Where("Name = ?", ChatName).Find(&database.Chat{}).Error; err != nil {
-		database.ChatCreate(ChatName, key)
+	if err := db.Where("Name = ?", ChatName).Find(&Chat{}).Error; err != nil {
+		ChatCreate(ChatName, key)
 		http.Redirect(w, r, "/"+ChatName, 303)
 	} else {
 		http.Redirect(w, r, "/chat/duplicate", 303)
@@ -111,9 +115,9 @@ func CreateChat(w http.ResponseWriter, r *http.Request) {
 }
 
 // websocket connect and verification
-func Chat(w http.ResponseWriter, r *http.Request) {
-	var users []database.User
-	var chat database.Chat
+func Chatting(w http.ResponseWriter, r *http.Request) {
+	var users []User
+	var chat Chat
 	var key, userkey string
 	vars := mux.Vars(r)
 	ID, _ := strconv.Atoi(vars["ID"])
@@ -148,14 +152,14 @@ func Chat(w http.ResponseWriter, r *http.Request) {
 	// if user does not exist but Chat key is correct
 	if ok, chat := VerifyKey(ID, key); !found && ok {
 		log.Println("New User connected", username)
-		database.UserCreate(ID, username, userkey, chat)
+		UserCreate(ID, username, userkey, chat)
 		connect(w, r, ID, username, key, chat)
 	}
 
 }
 
 // create Hub
-func connect(w http.ResponseWriter, r *http.Request, ID int, username, key string, chat database.Chat) {
+func connect(w http.ResponseWriter, r *http.Request, ID int, username, key string, chat Chat) {
 	if _, ok := hublist[ID]; !ok { // if Hub does not exist in map for a chat
 		hub := newHub(ID, key)
 		go hub.run()
@@ -167,12 +171,12 @@ func connect(w http.ResponseWriter, r *http.Request, ID int, username, key strin
 }
 
 // Verify key given ID for the chat
-func VerifyKey(ID int, key string) (bool, database.Chat) {
-	var chat database.Chat
+func VerifyKey(ID int, key string) (bool, Chat) {
+	var chat Chat
 
 	if err := db.Where("ID = ? and skey = ?", ID, key).First(&chat).Error; err != nil {
 		log.Println("Wrong key or ID")
-		return false, database.Chat{}
+		return false, Chat{}
 	}
 	return true, chat
 }
